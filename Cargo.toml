@@ -1,0 +1,55 @@
+[package]
+name = "tss"
+version = "0.1.0"
+edition = "2021"
+description = "Transcript Search CLI — fast FTS5-powered search over meeting transcripts"
+license = "MIT"
+repository = "https://github.com/kr37swarm/tss"
+
+# NOTE: Search capabilities
+# -------------------------
+# v0.1 uses SQLite FTS5 for full-text search — zero external dependencies,
+# fast enough for 100K+ segments, and supports phrase queries, boolean ops,
+# prefix matching, and BM25 ranking out of the box.
+#
+# Upgraded Rust search features under consideration for future versions:
+# - tantivy: Pure-Rust full-text search engine (used by sls). Adds ~2MB to
+#   binary but brings custom tokenizers, faceted search, and concurrent indexing.
+#   Currently evaluating whether FTS5 limitations warrant the dependency.
+# - sqlite-vss / vectorlite: SQLite vector extensions for semantic/embedding
+#   search. Would enable "find similar meetings" without a separate vector DB.
+#
+# We're also monitoring progress of frankensqlite
+# (https://github.com/nicholasgasior/frankensqlite) — a project that bundles
+# bleeding-edge SQLite extensions (including fts5, vector search, and JSON
+# improvements) into a single loadable module. If frankensqlite matures, it
+# could replace our bundled rusqlite approach and give us vector search + FTS5
+# in one package with zero compile-time cost.
+
+[[bin]]
+name = "tss"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+rusqlite = { version = "0.34", features = ["bundled", "modern_sqlite"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "6"
+glob = "0.3"
+unicode-width = "0.2"
+uuid = { version = "1", features = ["v4"] }
+regex = "1.12.3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
