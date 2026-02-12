@@ -32,7 +32,7 @@ enum Commands {
         #[arg(long)]
         speaker: Option<String>,
 
-        /// Filter by source (e.g. fireflies, pocket)
+        /// Filter by source (e.g. zoom, otter, teams, fireflies)
         #[arg(long)]
         source: Option<String>,
 
