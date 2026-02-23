@@ -15,8 +15,29 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         );",
     )?;
 
-    // Future migrations go here, e.g.:
-    // run_migration(conn, 1, "add_participants_table", |c| { ... })?;
+    run_migration(conn, 1, "add_sync_tables", |c| {
+        c.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sync_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS sync_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                transcripts_found INTEGER DEFAULT 0,
+                transcripts_synced INTEGER DEFAULT 0,
+                transcripts_skipped INTEGER DEFAULT 0,
+                errors INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'running'
+            );",
+        )?;
+        Ok(())
+    })?;
 
     Ok(())
 }
