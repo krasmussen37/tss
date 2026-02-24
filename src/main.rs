@@ -1,10 +1,12 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use tss::config;
 use tss::db::Database;
 use tss::ingest;
 use tss::output::{json as json_out, table};
 use tss::search::filters::Filters;
+use tss::sync;
 
 #[derive(Parser)]
 #[command(name = "tss", version, about = "Transcript Search — fast FTS5-powered search over meeting transcripts")]
@@ -154,6 +156,52 @@ enum Commands {
 
     /// Show database info
     Info,
+
+    /// Sync transcripts from remote sources
+    Sync {
+        /// Source: fireflies, pocket
+        source: String,
+
+        /// Run full audit — compare all remote vs local, report discrepancies
+        #[arg(long)]
+        audit: bool,
+
+        /// Force initial sync (ignore cursor, re-scan all)
+        #[arg(long)]
+        full: bool,
+
+        /// Skip confirmation prompts
+        #[arg(long, short)]
+        yes: bool,
+
+        /// Override API key
+        #[arg(long)]
+        api_key: Option<String>,
+
+        /// Filter by tag (source-specific, e.g., pocket channel tag)
+        #[arg(long)]
+        tag: Option<String>,
+
+        /// Preview: list what would be synced without downloading
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Manage tss configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Create default config file with template
+    Init,
+    /// Show current configuration (redacts secrets)
+    Show,
+    /// Print config file path
+    Path,
 }
 
 fn main() -> Result<()> {
@@ -363,6 +411,107 @@ fn main() -> Result<()> {
             println!("Rebuilding FTS5 indexes...");
             db.reindex()?;
             println!("Done.");
+        }
+
+        Commands::Sync {
+            source,
+            audit,
+            full,
+            yes,
+            api_key,
+            tag,
+            dry_run,
+        } => {
+            // Validate source name early
+            let valid_sources = ["fireflies", "pocket"];
+            if !valid_sources.contains(&source.as_str()) {
+                bail!(
+                    "Unknown source: {}. Supported: {}",
+                    source,
+                    valid_sources.join(", ")
+                );
+            }
+
+            let cfg = config::TssConfig::load()?;
+            let source_config = cfg.source_config(&source);
+
+            // Resolve credential
+            let env_var = format!("{}_API_KEY", source.to_uppercase());
+            eprintln!("Resolving credentials...");
+            let resolved_key =
+                config::resolve_credential(api_key.as_deref(), &env_var, source_config)?;
+
+            let connector = sync::build_connector(
+                &source,
+                resolved_key,
+                tag,
+                source_config,
+                &db,
+            )?;
+
+            let opts = sync::SyncOptions { yes, dry_run };
+
+            if audit {
+                let report = sync::run_audit(connector.as_ref(), &db, &opts)?;
+                if json_output {
+                    json_out::print_json(&serde_json::json!({
+                        "source": report.source,
+                        "mode": "audit",
+                        "remote_total": report.remote_total,
+                        "local_total": report.local_total,
+                        "missing_locally": report.missing_locally.len(),
+                        "orphaned_locally": report.orphaned_locally.len(),
+                    }))?;
+                }
+            } else {
+                // Determine mode: audit flag checked above, so here it's initial or incremental
+                let cursor_key = format!("{}.last_sync_at", source);
+                let has_cursor = sync::state::get_sync_state(&db.conn, &cursor_key)?.is_some();
+
+                let mode = if full || !has_cursor {
+                    sync::SyncMode::Initial
+                } else {
+                    sync::SyncMode::Incremental
+                };
+
+                let report = sync::run_sync(connector.as_ref(), &db, mode, &opts)?;
+                if json_output {
+                    json_out::print_json(&serde_json::json!({
+                        "source": report.source,
+                        "mode": mode.as_str(),
+                        "remote_total": report.remote_total,
+                        "already_local": report.already_local,
+                        "synced": report.synced,
+                        "skipped": report.skipped,
+                        "failed": report.failed,
+                        "duration_secs": report.duration_secs,
+                    }))?;
+                }
+            }
+        }
+
+        Commands::Config { action } => {
+            match action {
+                ConfigAction::Init => {
+                    let created = config::init_config()?;
+                    let path = config::config_path()?;
+                    if created {
+                        println!("Created config: {}", path.display());
+                    } else {
+                        println!("Config already exists: {}", path.display());
+                    }
+                }
+                ConfigAction::Show => {
+                    let cfg = config::TssConfig::load()?;
+                    let path = config::config_path()?;
+                    println!("Config: {}\n", path.display());
+                    println!("{}", cfg.display_redacted());
+                }
+                ConfigAction::Path => {
+                    let path = config::config_path()?;
+                    println!("{}", path.display());
+                }
+            }
         }
 
         Commands::Info => {
