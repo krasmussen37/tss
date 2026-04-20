@@ -86,7 +86,7 @@ impl TranscriptConnector for PocketConnector {
 
         loop {
             let mut path = format!(
-                "/public/recordings?page={}&per_page={}",
+                "/public/recordings?page={}&limit={}",
                 page, PAGE_SIZE
             );
             if let Some(ref tid) = self.tag_id {
@@ -136,13 +136,13 @@ impl TranscriptConnector for PocketConnector {
                 all.push(RemoteTranscript { id, title, date });
             }
 
-            // Check pagination
-            let last_page = json
-                .get("meta")
-                .and_then(|m| m.get("last_page"))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(1);
-            if page >= last_page {
+            // Check pagination — Pocket API uses "pagination" with "has_more" and "total_pages"
+            let has_more = json
+                .get("pagination")
+                .and_then(|p| p.get("has_more"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !has_more {
                 break;
             }
             page += 1;

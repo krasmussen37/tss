@@ -199,6 +199,10 @@ pub fn run_sync(
     let width = format!("{}", new_count).len();
 
     for (i, rt) in new_transcripts.iter().enumerate() {
+        // Rate-limit: 500ms between fetches to avoid API throttling (esp. Pocket)
+        if i > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
         match connector.fetch_one(&rt.id) {
             Ok(transcript) => {
                 let seg_count = transcript.segments.len();
