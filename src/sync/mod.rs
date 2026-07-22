@@ -79,6 +79,7 @@ pub fn run_sync(
     db: &Database,
     mode: SyncMode,
     opts: &SyncOptions,
+    exclude_tags: &[String],
 ) -> Result<SyncReport> {
     let start = Instant::now();
     let source = connector.name().to_string();
@@ -195,6 +196,7 @@ pub fn run_sync(
     // Download and insert
     let run_id = state::start_sync_run(&db.conn, &source, mode.as_str())?;
     let mut synced = 0usize;
+    let mut skipped = 0usize;
     let mut failed = 0usize;
     let width = format!("{}", new_count).len();
 
@@ -205,6 +207,23 @@ pub fn run_sync(
         }
         match connector.fetch_one(&rt.id) {
             Ok(transcript) => {
+                // Check exclude_tags: skip if any transcript tag matches
+                if !exclude_tags.is_empty() {
+                    let dominated = transcript.tags.iter().any(|t| {
+                        exclude_tags.iter().any(|ex| t.eq_ignore_ascii_case(ex))
+                    });
+                    if dominated {
+                        skipped += 1;
+                        eprintln!(
+                            "  [{:>width$}/{}] SKIPPED (excluded tag): {}",
+                            i + 1,
+                            new_count,
+                            rt.title,
+                        );
+                        continue;
+                    }
+                }
+
                 let seg_count = transcript.segments.len();
                 let ai_count = transcript.action_items.len();
                 match db.insert_transcript(&transcript) {
@@ -266,10 +285,17 @@ pub fn run_sync(
     state::set_sync_state(&db.conn, &key, &now)?;
 
     let duration = start.elapsed().as_secs_f64();
-    eprintln!(
-        "\nSync complete: {} synced, {} failed ({:.1}s)",
-        synced, failed, duration
-    );
+    if skipped > 0 {
+        eprintln!(
+            "\nSync complete: {} synced, {} skipped (excluded), {} failed ({:.1}s)",
+            synced, skipped, failed, duration
+        );
+    } else {
+        eprintln!(
+            "\nSync complete: {} synced, {} failed ({:.1}s)",
+            synced, failed, duration
+        );
+    }
 
     Ok(SyncReport {
         source,
@@ -277,7 +303,7 @@ pub fn run_sync(
         remote_total,
         already_local,
         synced,
-        skipped: 0,
+        skipped,
         failed,
         duration_secs: duration,
     })
