@@ -8,6 +8,7 @@ pub struct SourceConfig {
     pub api_key: Option<String>,
     pub api_key_command: Option<String>,
     pub default_tag: Option<String>,
+    pub exclude_tags: Option<Vec<String>>,
     pub base_url: Option<String>,
 }
 
@@ -73,6 +74,9 @@ fn display_source_config(lines: &mut Vec<String>, sc: &SourceConfig) {
     }
     if let Some(ref tag) = sc.default_tag {
         lines.push(format!("  default_tag = \"{}\"", tag));
+    }
+    if let Some(ref excludes) = sc.exclude_tags {
+        lines.push(format!("  exclude_tags = {:?}", excludes));
     }
     if let Some(ref url) = sc.base_url {
         lines.push(format!("  base_url = \"{}\"", url));
@@ -162,6 +166,7 @@ pub fn default_config_template() -> &'static str {
 # api_key = "your-pocket-api-key"
 # api_key_command = "your-secrets-manager-command-here"
 # default_tag = "your-tag-name"
+# exclude_tags = ["Kids", "Highlights"]
 "#
 }
 

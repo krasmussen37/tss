@@ -47,7 +47,7 @@ unicode-width = "0.2"
 uuid = { version = "1", features = ["v4"] }
 regex = "1.12.3"
 toml = "0.8"
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 
 [profile.release]
 opt-level = "z"

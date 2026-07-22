@@ -182,6 +182,10 @@ enum Commands {
         #[arg(long)]
         tag: Option<String>,
 
+        /// Exclude transcripts with these tags (repeatable, case-insensitive)
+        #[arg(long = "exclude-tag")]
+        exclude_tag: Vec<String>,
+
         /// Preview: list what would be synced without downloading
         #[arg(long)]
         dry_run: bool,
@@ -420,6 +424,7 @@ fn main() -> Result<()> {
             yes,
             api_key,
             tag,
+            exclude_tag,
             dry_run,
         } => {
             // Validate source name early
@@ -449,6 +454,16 @@ fn main() -> Result<()> {
                 &db,
             )?;
 
+            // Merge exclude_tags: CLI flags + config
+            let mut all_excludes = exclude_tag;
+            if let Some(ref cfg_excludes) = source_config.and_then(|c| c.exclude_tags.clone()) {
+                for ex in cfg_excludes {
+                    if !all_excludes.iter().any(|e| e.eq_ignore_ascii_case(ex)) {
+                        all_excludes.push(ex.clone());
+                    }
+                }
+            }
+
             let opts = sync::SyncOptions { yes, dry_run };
 
             if audit {
@@ -474,7 +489,7 @@ fn main() -> Result<()> {
                     sync::SyncMode::Incremental
                 };
 
-                let report = sync::run_sync(connector.as_ref(), &db, mode, &opts)?;
+                let report = sync::run_sync(connector.as_ref(), &db, mode, &opts, &all_excludes)?;
                 if json_output {
                     json_out::print_json(&serde_json::json!({
                         "source": report.source,
